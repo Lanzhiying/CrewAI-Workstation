@@ -7,6 +7,7 @@ import os
 os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 os.environ["OPENAI_MODEL_NAME"] = "deepseek-chat"
+os.environ["CREWAI_TOOLS_ALLOW_UNSAFE_PATHS"] = "true"
 
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
