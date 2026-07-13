@@ -1,96 +1,86 @@
 """
-CrewAI Workflow: decompose -> execute -> verify (loop)
-Simple sequential Crew without Flow API to avoid encoding issues.
+CrewAI Personal Work Assistant
+Uses Process.hierarchical — manager decomposes, delegates, reviews (built-in loop)
 """
-import os
-from crewai import Agent, Task, Crew, Process
+import os, re
 
-api_key = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
-os.environ["OPENAI_API_KEY"] = api_key
+os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 os.environ["OPENAI_MODEL_NAME"] = "deepseek-chat"
 
-
-def run_once(task_text, plan=None, feedback=""):
-    """Run one complete cycle: decompose (if no plan) -> execute -> verify"""
-
-    if not plan:
-        print("n=== 1. Decompose ===")
-        manager = Agent(role="project manager", goal="decompose task into steps", backstory="PM")
-        t1 = Task(description=f"Decompose into steps: {task_text}", agent=manager, expected_output="steps")
-        c1 = Crew(agents=[manager], tasks=[t1], verbose=False)
-        plan = str(c1.kickoff())
-        print(f"  Plan: {plan[:200]}...")
-
-    print(f"n=== 2. Execute ===")
-    # Auto-read files mentioned in task
-    import re
-    file_refs = re.findall(r'/workspace/work/[^s]+', task_text)
-    injected = task_text
-    for fp in file_refs:
-        if os.path.exists(fp):
-            with open(fp, 'r', encoding='utf-8') as fh:
-                content = fh.read()
-            injected += f"nn=== File: {fp} ===n{content}"
-
-    desc = f"Task: {injected}nPlan: {plan}"
-    if feedback:
-        desc += f"nFeedback to address: {feedback}"
-    execu = Agent(role="Executor", goal="produce output", backstory="doer", llm="deepseek-chat", verbose=False)
-    t2 = Task(description=desc, agent=execu, expected_output="deliverable")
-    c2 = Crew(agents=[execu], tasks=[t2], verbose=False)
-    draft = str(c2.kickoff())
-    print(f"  Done: {len(draft)} chars")
-
-    print(f"n=== 3. Verify ===")
-    veri = Agent(role="Reviewer", goal="check quality", backstory="QC expert", llm="deepseek-chat", verbose=False)
-    t3 = Task(
-        description=f"Review if this output meets requirements.nTask: {task_text}nOutput: {draft}nReply PASS or FAIL + reasons.",
-        agent=veri,
-        expected_output="PASS or FAIL",
-    )
-    c3 = Crew(agents=[veri], tasks=[t3], verbose=False)
-    verdict = str(c3.kickoff()).strip()
-    print(f"  Verdict: {verdict[:200]}")
-
-    return draft, plan, verdict
+from crewai import Agent, Task, Crew, Process
 
 
 def main():
-    print("CrewAI Assistant (decompose -> execute -> verify loop)")
-    print("=" * 40)
+    print("CrewAI 个人工作助手（主管自动分派+审核循环）")
+    print("=" * 50)
 
     while True:
-        task = input("nTask (q to quit): ").strip()
+        task = input("n输入任务（q退出）: ").strip()
         if task.lower() == "q":
             break
         if not task:
             continue
 
-        plan = None
-        final = ""
-        for i in range(1, 6):
-            print(f"n--- Round {i} ---")
-            draft, plan, verdict = run_once(task, plan, "" if i == 1 else verdict)
-            final = draft
+        # Auto-inject file content
+        for fp in re.findall(r'/workspace/work/[^s]+', task):
+            if os.path.exists(fp):
+                with open(fp, "r", encoding="utf-8") as f:
+                    content = f.read()
+                task += f"nn=== File: {fp} ===n{content}"
 
-            if "PASS" in verdict.upper() or i >= 5:
-                print("n" + "=" * 40)
-                print("FINAL OUTPUT:")
-                print("=" * 40)
-                print(final[:1000])
-                if len(final) > 1000:
-                    print(f"... ({len(final)} total chars)")
+        # 主管——拆解任务、分配、审核
+        manager = Agent(
+            role="项目经理",
+            goal="拆解任务、分配给合适的员工、审核成果、不达标则退回修改",
+            backstory="你是一个严谨的项目经理，擅长将复杂需求拆解为可执行的步骤。"
+                      "你分配任务给员工后，会严格审核成果。如果不达标，你会给出具体修改意见并退回。"
+                      "只有完全达标才确认交付。",
+            llm="deepseek-chat",
+            allow_delegation=True,
+        )
 
-                safe = "".join(c for c in task[:20] if c.isalnum() or c in " _").strip()
-                fname = f"/workspace/work/output_{safe or 'result'}.txt"
-                os.makedirs("/workspace/work", exist_ok=True)
-                with open(fname, "w", encoding="utf-8") as f:
-                    f.write(final)
-                print(f"nSaved: {fname}")
-                break
+        # 员工1——分析/研究
+        analyst = Agent(
+            role="分析专员",
+            goal="根据分配的任务进行数据核查、合规检查、逻辑验证",
+            backstory="你擅长数据分析和标准核查，能发现设计中的问题",
+            llm="deepseek-chat",
+        )
 
-            print("nFAIL -> revising...")
+        # 员工2——写作/报告
+        writer = Agent(
+            role="报告撰写专员",
+            goal="根据分析结果撰写结构化的完整报告",
+            backstory="你擅长将分析结果转化为清晰、结构化的文字报告",
+            llm="deepseek-chat",
+        )
+
+        crew = Crew(
+            agents=[manager, analyst, writer],
+            tasks=[
+                Task(
+                    description=task,
+                    expected_output="完整的分析报告",
+                )
+            ],
+            process=Process.hierarchical,
+            manager_agent=manager,
+            verbose=True,
+        )
+
+        result = crew.kickoff()
+        print("n" + "=" * 50)
+        print("最终交付物：")
+        print("=" * 50)
+        print(str(result))
+
+        safe = "".join(c for c in task[:20] if c.isalnum() or c in " _").strip()
+        fname = f"/workspace/work/output_{safe or 'result'}.md"
+        os.makedirs("/workspace/work", exist_ok=True)
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write(str(result))
+        print(f"n已保存：{fname}")
 
 
 if __name__ == "__main__":
