@@ -66,7 +66,7 @@ def main():
         )
 
         crew = Crew(
-            agents=[manager, analyst, writer, reviewer],
+            agents=[analyst, writer, reviewer],
             tasks=[
                 Task(
                     description=task,
