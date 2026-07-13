@@ -5,8 +5,9 @@ Simple sequential Crew without Flow API to avoid encoding issues.
 import os
 from crewai import Agent, Task, Crew, Process
 
-os.environ.setdefault("OPENAI_API_KEY", os.environ.get("DEEPSEEK_API_KEY", ""))
-os.environ.setdefault("OPENAI_API_BASE", "https://api.deepseek.com")
+os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+os.environ["OPENAI_API_BASE"] = "https://api.deepseek.com"
+os.environ["OPENAI_MODEL_NAME"] = "deepseek-chat"
 
 
 def run_once(task_text, plan=None, feedback=""):
@@ -24,14 +25,14 @@ def run_once(task_text, plan=None, feedback=""):
     desc = f"Task: {task_text}nPlan: {plan}"
     if feedback:
         desc += f"nFeedback to address: {feedback}"
-    execu = Agent(role="executor", goal="produce complete output", backstory="doer")
+    execu = Agent(role="Executor", goal="produce output", backstory="doer", llm="deepseek-chat", verbose=False)
     t2 = Task(description=desc, agent=execu, expected_output="deliverable")
     c2 = Crew(agents=[execu], tasks=[t2], verbose=False)
     draft = str(c2.kickoff())
     print(f"  Done: {len(draft)} chars")
 
     print(f"n=== 3. Verify ===")
-    veri = Agent(role="reviewer", goal="check quality strictly", backstory="QC expert")
+    veri = Agent(role="Reviewer", goal="check quality", backstory="QC expert", llm="deepseek-chat", verbose=False)
     t3 = Task(
         description=f"Review if this output meets requirements.nTask: {task_text}nOutput: {draft}nReply PASS or FAIL + reasons.",
         agent=veri,
