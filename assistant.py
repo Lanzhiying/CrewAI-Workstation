@@ -34,6 +34,7 @@ def main():
                       "只有完全达标才确认交付。",
             llm="deepseek-chat",
             allow_delegation=True,
+            tools=[FileReadTool()],
         )
 
         # 员工1——分析/研究
