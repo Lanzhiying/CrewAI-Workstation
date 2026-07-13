@@ -48,11 +48,9 @@ def main():
             role="Project Manager",
             goal="Decompose complex tasks, delegate to the right people, review deliverables, ensure quality",
             backstory="Experienced PM who breaks down work, assigns to team members, "
-                      "reviews outputs critically, and sends back for revision until quality standards are met. "
-                      "Uses FileReadTool to understand source materials before delegating.",
+                      "reviews outputs critically, and sends back for revision until quality standards are met.",
             llm="deepseek-chat",
             allow_delegation=True,
-            tools=[tool_file],
         )
 
         task = Task(
