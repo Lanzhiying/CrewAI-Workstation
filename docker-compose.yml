@@ -1,0 +1,11 @@
+version: "3.8"
+services:
+  crewai:
+    build: .
+    container_name: crewai-workstation
+    volumes:
+      - ./work:/workspace/work
+    environment:
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    stdin_open: true
+    tty: true
