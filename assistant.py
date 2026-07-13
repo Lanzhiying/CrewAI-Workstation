@@ -23,7 +23,17 @@ def run_once(task_text, plan=None, feedback=""):
         print(f"  Plan: {plan[:200]}...")
 
     print(f"n=== 2. Execute ===")
-    desc = f"Task: {task_text}nPlan: {plan}"
+    # Auto-read files mentioned in task
+    import re
+    file_refs = re.findall(r'/workspace/work/[^s]+', task_text)
+    injected = task_text
+    for fp in file_refs:
+        if os.path.exists(fp):
+            with open(fp, 'r', encoding='utf-8') as fh:
+                content = fh.read()
+            injected += f"nn=== File: {fp} ===n{content}"
+
+    desc = f"Task: {injected}nPlan: {plan}"
     if feedback:
         desc += f"nFeedback to address: {feedback}"
     execu = Agent(role="Executor", goal="produce output", backstory="doer", llm="deepseek-chat", verbose=False)
