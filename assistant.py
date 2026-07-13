@@ -3,7 +3,7 @@ CrewAI Personal Work Assistant
 分解 -> 执行 -> 审核 (不达标循环)
 """
 import os, sys
-from crewai_tools import FileReadTool
+from crewai_tools import FileReadTool, ScrapeWebsiteTool
 from crewai.flow.flow import Flow, listen, start
 
 
@@ -43,7 +43,7 @@ class Workflow(Flow):
         agent = Agent(
             role="执行专员", goal="按计划交付成品",
             backstory="高效执行者",
-            tools=[FileReadTool()],
+            tools=[FileReadTool(), ScrapeWebsiteTool()],
         )
         feedback = self.state.get("feedback", "")
         desc = f"任务：{self.state['task']}\n计划：{self.state.get('plan','')}"
@@ -67,7 +67,7 @@ class Workflow(Flow):
             role="质量审核员",
             goal="严格审核，不达标必须打回",
             backstory="苛刻的质检专家",
-            tools=[FileReadTool()],
+            tools=[FileReadTool(), ScrapeWebsiteTool()],
         )
         task = Task(
             description=f"审核交付物是否达标。\n需求：{self.state['task']}\n交付物：{self.state['draft']}\n\n达标回复：通过\n不达标回复：不通过+具体意见",
