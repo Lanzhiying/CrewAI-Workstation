@@ -3,12 +3,14 @@ CrewAI Personal Work Assistant
 分解 -> 执行 -> 审核 (不达标循环)
 """
 import os, sys
+os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
+os.environ["OPENAI_API_BASE"] = "https://api.deepseek.com"
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
 from crewai.flow.flow import Flow, listen, start
 
 
 class Workflow(Flow):
-    model = "gpt-4o"
+    model = "deepseek/deepseek-chat"
 
     @start()
     def decompose(self):
