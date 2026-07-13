@@ -1,80 +1,128 @@
 """
 CrewAI Personal Work Assistant
-Usage: python assistant.py
+分解 -> 执行 -> 审核 (不达标循环)
 """
 import os, sys
-from crewai import Agent, Task, Crew
+from crewai.flow.flow import Flow, listen, start
 
 
-def run():
-    task_desc = input("\n输入任务: ").strip()
-    if not task_desc:
-        return
+class Workflow(Flow):
+    model = "gpt-4o"
 
-    # Agent 1: Project Manager
-    manager = Agent(
-        role="项目经理",
-        goal="将复杂任务拆解成清晰的步骤，分配执行，审核结果",
-        backstory="你是一个经验丰富的项目经理，擅长将模糊的需求转化为可执行的计划",
-        allow_delegation=True,
-    )
+    @start()
+    def decompose(self):
+        print("\n" + "=" * 50)
+        print("1 分解：拆解任务")
+        print("=" * 50)
+        from crewai import Agent, Task, Crew
 
-    # Agent 2: Executor
-    executor = Agent(
-        role="执行专员",
-        goal="根据计划逐步骤执行，交付完整可用的成果",
-        backstory="你是一个高效的执行者，能够按要求完成各类文档、分析和写作任务",
-    )
+        agent = Agent(
+            role="项目经理",
+            goal="将任务拆解为3-5个步骤",
+            backstory="资深项目管理",
+        )
+        task = Task(
+            description=f"将以下任务拆解为步骤：\n{self.state['task']}",
+            agent=agent,
+            expected_output="步骤清单",
+        )
+        crew = Crew(agents=[agent], tasks=[task], verbose=False)
+        result = crew.kickoff()
+        self.state["plan"] = str(result)
+        print(f"  计划：{str(result)[:300]}...")
 
-    # Agent 3: Reviewer
-    reviewer = Agent(
-        role="质量审核员",
-        goal="审核交付物是否达标，不达标则反馈修改意见",
-        backstory="你是一个严格的质量审核员，对细节极其挑剔",
-    )
+    @listen(decompose)
+    def execute(self):
+        loop = self.state.get("loop", 1)
+        print("\n" + "=" * 50)
+        print(f"2 执行 （第{loop}轮）")
+        print("=" * 50)
+        from crewai import Agent, Task, Crew
 
-    # Tasks
-    decompose = Task(
-        description=f"将以下任务拆解为3-5个可执行的步骤：\n{task_desc}\n\n输出步骤清单和交付格式要求",
-        agent=manager,
-        expected_output="步骤清单和交付要求",
-    )
+        agent = Agent(
+            role="执行专员", goal="按计划交付成品",
+            backstory="高效执行者",
+        )
+        feedback = self.state.get("feedback", "")
+        desc = f"任务：{self.state['task']}\n计划：{self.state.get('plan','')}"
+        if feedback:
+            desc += f"\n\n审核意见（需修）：{feedback}"
+        task = Task(description=desc, agent=agent, expected_output="交付物")
+        crew = Crew(agents=[agent], tasks=[task], verbose=False)
+        result = crew.kickoff()
+        self.state["draft"] = str(result)
+        print(f"  完成：{len(str(result))} 字符")
 
-    execute_task = Task(
-        description=f"根据计划执行以下任务，输出完整的交付物：\n{task_desc}",
-        agent=executor,
-        expected_output="完整的交付文档",
-    )
+    @listen(execute)
+    def verify(self):
+        loop = self.state.get("loop", 1)
+        print("\n" + "=" * 50)
+        print(f"3 审核 （第{loop}轮）")
+        print("=" * 50)
+        from crewai import Agent, Task, Crew
 
-    review_task = Task(
-        description=f"审核交付物是否满足以下标准：1)完整性 2)准确性 3)可直接使用\n\n如果达标则确认，不达标则给出具体的修改意见",
-        agent=reviewer,
-        expected_output="审核结论（通过/需修改）及修改意见",
-    )
+        agent = Agent(
+            role="质量审核员",
+            goal="严格审核，不达标必须打回",
+            backstory="苛刻的质检专家",
+        )
+        task = Task(
+            description=f"审核交付物是否达标。\n需求：{self.state['task']}\n交付物：{self.state['draft']}\n\n达标回复：通过\n不达标回复：不通过+具体意见",
+            agent=agent, expected_output="通过/不通过",
+        )
+        crew = Crew(agents=[agent], tasks=[task], verbose=False)
+        verdict = str(crew.kickoff()).strip()
+        print(f"  结论：{verdict[:200]}")
 
-    crew = Crew(
-        agents=[manager, executor, reviewer],
-        tasks=[decompose, execute_task, review_task],
-        verbose=True,
-    )
+        self.state["loop"] = loop + 1
+        self.state["last_verdict"] = verdict
 
-    result = crew.kickoff()
-    print("\n" + "=" * 50)
-    print("最终交付物：")
-    print("=" * 50)
-    print(result)
+        if "通过" in verdict:
+            print("\n 合格！交付")
+            self.state["done"] = True
+        elif loop >= 5:
+            print("\n 达最大次数，强制交付")
+            self.state["done"] = True
+        else:
+            print("\n 不达标，打回修改")
+            self.state["feedback"] = verdict
+            self.state["done"] = False
 
-    safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _")
-    with open(f"work/output_{safe.strip() or 'result'}.md", "w", encoding="utf-8") as f:
-        f.write(str(result))
-    print(f"\n已保存至 work/output_{safe.strip() or 'result'}.md")
+    @listen(verify)
+    def check(self):
+        if not self.state.get("done", False):
+            print("-> 回到执行...")
+            return self.execute()
 
 
 if __name__ == "__main__":
-    print("CrewAI 个人工作助手")
-    print("=" * 30)
+    print("CrewAI 个人工作助手（分解->执行->审核循环）")
+    print("=" * 50)
     while True:
-        run()
-        c = input("\n继续? (Enter=继续, q=退出): ").strip()
-        if c.lower() == "q":
+        task = input("\n输入任务（q退出）: ").strip()
+        if task.lower() == "q":
             break
+        if not task:
+            continue
+
+        flow = Workflow()
+        flow.state["task"] = task
+        flow.state["loop"] = 1
+        flow.state["feedback"] = ""
+        flow.state["done"] = False
+        flow.kickoff()
+
+        final = flow.state.get("draft", "")
+        print("\n" + "=" * 50)
+        print("最终交付物：")
+        print("=" * 50)
+        print(final[:1000])
+        if len(final) > 1000:
+            print(f"\n...（共 {len(final)} 字符）")
+
+        safe = "".join(c for c in task[:20] if c.isalnum() or c in " _")
+        fname = f"/workspace/work/output_{safe.strip() or 'result'}.md"
+        os.makedirs("/workspace/work", exist_ok=True)
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write(final)
+        print(f"\n已保存：{fname}")
