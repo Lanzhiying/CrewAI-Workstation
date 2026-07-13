@@ -1,133 +1,85 @@
 """
-CrewAI Personal Work Assistant
-分解 -> 执行 -> 审核 (不达标循环)
+CrewAI Workflow: decompose -> execute -> verify (loop)
+Simple sequential Crew without Flow API to avoid encoding issues.
 """
-import os, sys
-os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
-os.environ["OPENAI_API_BASE"] = "https://api.deepseek.com"
-from crewai_tools import FileReadTool, ScrapeWebsiteTool
-from crewai.flow.flow import Flow, listen, start
+import os
+from crewai import Agent, Task, Crew, Process
+
+os.environ.setdefault("OPENAI_API_KEY", os.environ.get("DEEPSEEK_API_KEY", ""))
+os.environ.setdefault("OPENAI_API_BASE", "https://api.deepseek.com")
 
 
-class Workflow(Flow):
-    model = "deepseek/deepseek-chat"
+def run_once(task_text, plan=None, feedback=""):
+    """Run one complete cycle: decompose (if no plan) -> execute -> verify"""
 
-    @start()
-    def decompose(self):
-        print("\n" + "=" * 50)
-        print("1 分解：拆解任务")
-        print("=" * 50)
-        from crewai import Agent, Task, Crew
+    if not plan:
+        print("n=== 1. Decompose ===")
+        manager = Agent(role="project manager", goal="decompose task into steps", backstory="PM")
+        t1 = Task(description=f"Decompose into steps: {task_text}", agent=manager, expected_output="steps")
+        c1 = Crew(agents=[manager], tasks=[t1], verbose=False)
+        plan = str(c1.kickoff())
+        print(f"  Plan: {plan[:200]}...")
 
-        agent = Agent(
-            role="项目经理",
-            goal="将任务拆解为3-5个步骤",
-            backstory="资深项目管理",
-        )
-        task = Task(
-            description=f"将以下任务拆解为步骤：\n{self.state['task']}",
-            agent=agent,
-            expected_output="步骤清单",
-        )
-        crew = Crew(agents=[agent], tasks=[task], verbose=False)
-        result = crew.kickoff()
-        self.state["plan"] = str(result)
-        print(f"  计划：{str(result)[:300]}...")
+    print(f"n=== 2. Execute ===")
+    desc = f"Task: {task_text}nPlan: {plan}"
+    if feedback:
+        desc += f"nFeedback to address: {feedback}"
+    execu = Agent(role="executor", goal="produce complete output", backstory="doer")
+    t2 = Task(description=desc, agent=execu, expected_output="deliverable")
+    c2 = Crew(agents=[execu], tasks=[t2], verbose=False)
+    draft = str(c2.kickoff())
+    print(f"  Done: {len(draft)} chars")
 
-    @listen(decompose)
-    def execute(self):
-        loop = self.state.get("loop", 1)
-        print("\n" + "=" * 50)
-        print(f"2 执行 （第{loop}轮）")
-        print("=" * 50)
-        from crewai import Agent, Task, Crew
+    print(f"n=== 3. Verify ===")
+    veri = Agent(role="reviewer", goal="check quality strictly", backstory="QC expert")
+    t3 = Task(
+        description=f"Review if this output meets requirements.nTask: {task_text}nOutput: {draft}nReply PASS or FAIL + reasons.",
+        agent=veri,
+        expected_output="PASS or FAIL",
+    )
+    c3 = Crew(agents=[veri], tasks=[t3], verbose=False)
+    verdict = str(c3.kickoff()).strip()
+    print(f"  Verdict: {verdict[:200]}")
 
-        agent = Agent(
-            role="执行专员", goal="按计划交付成品",
-            backstory="高效执行者",
-            tools=[FileReadTool(), ScrapeWebsiteTool()],
-        )
-        feedback = self.state.get("feedback", "")
-        desc = f"任务：{self.state['task']}\n计划：{self.state.get('plan','')}"
-        if feedback:
-            desc += f"\n\n审核意见（需修）：{feedback}"
-        task = Task(description=desc, agent=agent, expected_output="交付物")
-        crew = Crew(agents=[agent], tasks=[task], verbose=False)
-        result = crew.kickoff()
-        self.state["draft"] = str(result)
-        print(f"  完成：{len(str(result))} 字符")
-
-    @listen(execute)
-    def verify(self):
-        loop = self.state.get("loop", 1)
-        print("\n" + "=" * 50)
-        print(f"3 审核 （第{loop}轮）")
-        print("=" * 50)
-        from crewai import Agent, Task, Crew
-
-        agent = Agent(
-            role="质量审核员",
-            goal="严格审核，不达标必须打回",
-            backstory="苛刻的质检专家",
-            tools=[FileReadTool(), ScrapeWebsiteTool()],
-        )
-        task = Task(
-            description=f"审核交付物是否达标。\n需求：{self.state['task']}\n交付物：{self.state['draft']}\n\n达标回复：通过\n不达标回复：不通过+具体意见",
-            agent=agent, expected_output="通过/不通过",
-        )
-        crew = Crew(agents=[agent], tasks=[task], verbose=False)
-        verdict = str(crew.kickoff()).strip()
-        print(f"  结论：{verdict[:200]}")
-
-        self.state["loop"] = loop + 1
-        self.state["last_verdict"] = verdict
-
-        if "通过" in verdict:
-            print("\n 合格！交付")
-            self.state["done"] = True
-        elif loop >= 5:
-            print("\n 达最大次数，强制交付")
-            self.state["done"] = True
-        else:
-            print("\n 不达标，打回修改")
-            self.state["feedback"] = verdict
-            self.state["done"] = False
-
-    @listen(verify)
-    def check(self):
-        if not self.state.get("done", False):
-            print("-> 回到执行...")
-            return self.execute()
+    return draft, plan, verdict
 
 
-if __name__ == "__main__":
-    print("CrewAI 个人工作助手（分解->执行->审核循环）")
-    print("=" * 50)
+def main():
+    print("CrewAI Assistant (decompose -> execute -> verify loop)")
+    print("=" * 40)
+
     while True:
-        task = input("\n输入任务（q退出）: ").strip()
+        task = input("nTask (q to quit): ").strip()
         if task.lower() == "q":
             break
         if not task:
             continue
 
-        flow = Workflow()
-        flow.state["task"] = task
-        flow.state["loop"] = 1
-        flow.state["feedback"] = ""
-        flow.state["done"] = False
-        flow.kickoff()
+        plan = None
+        final = ""
+        for i in range(1, 6):
+            print(f"n--- Round {i} ---")
+            draft, plan, verdict = run_once(task, plan, "" if i == 1 else verdict)
+            final = draft
 
-        final = flow.state.get("draft", "")
-        print("\n" + "=" * 50)
-        print("最终交付物：")
-        print("=" * 50)
-        print(final[:1000])
-        if len(final) > 1000:
-            print(f"\n...（共 {len(final)} 字符）")
+            if "PASS" in verdict.upper() or i >= 5:
+                print("n" + "=" * 40)
+                print("FINAL OUTPUT:")
+                print("=" * 40)
+                print(final[:1000])
+                if len(final) > 1000:
+                    print(f"... ({len(final)} total chars)")
 
-        safe = "".join(c for c in task[:20] if c.isalnum() or c in " _")
-        fname = f"/workspace/work/output_{safe.strip() or 'result'}.md"
-        os.makedirs("/workspace/work", exist_ok=True)
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write(final)
-        print(f"\n已保存：{fname}")
+                safe = "".join(c for c in task[:20] if c.isalnum() or c in " _").strip()
+                fname = f"/workspace/work/output_{safe or 'result'}.txt"
+                os.makedirs("/workspace/work", exist_ok=True)
+                with open(fname, "w", encoding="utf-8") as f:
+                    f.write(final)
+                print(f"nSaved: {fname}")
+                break
+
+            print("nFAIL -> revising...")
+
+
+if __name__ == "__main__":
+    main()
