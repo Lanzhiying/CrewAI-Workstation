@@ -23,15 +23,7 @@ def main():
         if not task:
             continue
 
-        # Auto-inject file content (only for files < 3000 chars to save tokens)
-        for fp in re.findall(r'/workspace/work/[^s]+', task):
-            if os.path.exists(fp):
-                with open(fp, "r", encoding="utf-8") as f:
-                    content = f.read()
-                if len(content) < 3000:
-                    task += f"nn=== File: {fp} ===n{content}"
-                else:
-                    task += f"nn(File {fp} is {len(content)} chars, use FileReadTool to read)"
+        # Agents have FileReadTool/ScrapeWebsiteTool — they'll read files when needed
 
         # 主管——拆解任务、分配、审核
         manager = Agent(
