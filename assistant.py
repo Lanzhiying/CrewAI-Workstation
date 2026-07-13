@@ -55,8 +55,18 @@ def main():
             tools=[FileReadTool()],
         )
 
+        reviewer = Agent(
+            role="质量核查员",
+            goal="严格审核成果的质量、准确性和完整性，不达标必须打回",
+            backstory="你是一个苛刻的质量核查专家，对任何细节问题都不会放过。"
+                      "你会逐条核对分析数据是否合理、报告是否完整、结论是否有依据。"
+                      "只有完全符合要求才确认通过。",
+            llm="deepseek-chat",
+            tools=[FileReadTool()],
+        )
+
         crew = Crew(
-            agents=[manager, analyst, writer],
+            agents=[manager, analyst, writer, reviewer],
             tasks=[
                 Task(
                     description=task,
