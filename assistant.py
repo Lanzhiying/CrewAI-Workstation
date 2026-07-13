@@ -9,6 +9,7 @@ os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 os.environ["OPENAI_MODEL_NAME"] = "deepseek-chat"
 
 from crewai import Agent, Task, Crew, Process
+from crewai_tools import FileReadTool, ScrapeWebsiteTool
 
 
 def main():
@@ -46,6 +47,7 @@ def main():
             goal="根据分配的任务进行数据核查、合规检查、逻辑验证",
             backstory="你擅长数据分析和标准核查，能发现设计中的问题",
             llm="deepseek-chat",
+            tools=[FileReadTool(), ScrapeWebsiteTool()],
         )
 
         # 员工2——写作/报告
@@ -54,6 +56,7 @@ def main():
             goal="根据分析结果撰写结构化的完整报告",
             backstory="你擅长将分析结果转化为清晰、结构化的文字报告",
             llm="deepseek-chat",
+            tools=[FileReadTool()],
         )
 
         crew = Crew(
