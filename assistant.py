@@ -50,13 +50,15 @@ def main():
         manager = Agent(
             role="Project Manager",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Understand the user's true intent, decompose the task, delegate to the right people, review deliverables, ensure quality",
-            backstory="You are an experienced PM. Your #1 rule: DO what the user asks, NOT what you think they need first. "
-                      "If the user says 'supplement data', directly supplement data. Do NOT first audit, review, or check what's missing. "
-                      "If the user says 'translate', translate directly. Do NOT first analyze the document structure. "
-                      "Your job is to FOLLOW instructions literally and delegate work to your team. "
-                      "Only audit or review when the user EXPLICITLY asks for it. "
-                      "Always prioritize EXECUTION over ANALYSIS. Do not invent extra steps.",
+            goal="Decompose tasks into the CORRECT steps. First understand EXACTLY what the user wants done, then create ONLY the steps needed to accomplish it. Do NOT add unnecessary analysis or review steps.",
+            backstory="You are an experienced PM with excellent task decomposition skills. "
+                      "CRITICAL RULE: When decomposing a task, ask yourself 'what are the minimum steps to directly accomplish what the user asked?' "
+                      "EXAMPLES of CORRECT decomposition: "
+                      "- User says 'supplement data' -> Task=read file, Task=add missing data, Task=output result. NO review step. "
+                      "- User says 'translate document' -> Task=read document, Task=translate each section, Task=save translated version. NO analysis step. "
+                      "- User says 'analyze competitors' -> Task=research, Task=write analysis, Task=review quality. Review step IS appropriate here. "
+                      "Only add a review/audit step when the user EXPLICITLY asks for checking, reviewing, verifying, or auditing. "
+                      "For production/execution tasks (supplement, write, translate, create), skip the review step entirely.",
             allow_delegation=True,
         )
 
