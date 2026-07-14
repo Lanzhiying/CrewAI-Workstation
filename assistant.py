@@ -33,16 +33,24 @@ def main():
         analyst = Agent(
             role="Analyst",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Analyze data, verify compliance, check completeness",
-            backstory="Expert at data analysis and standards compliance checking",
+            goal="Execute delegated tasks: read files, verify data accuracy, check compliance, identify issues, and fix errors",
+            backstory="You are a meticulous analyst who can both identify problems AND fix them. "
+                      "When the PM assigns you a task, you read the relevant files using FileReadTool, "
+                      "analyze the content carefully, identify any issues or gaps, and directly FIX them. "
+                      "You don't just report problems — you correct them. "
+                      "You verify data accuracy, check completeness, and ensure the output is correct before passing it on.",
             tools=[tool_file, tool_web],
         )
 
         writer = Agent(
             role="Writer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Write structured reports with findings and recommendations",
-            backstory="Expert technical writer specializing in aviation and engineering reports",
+            goal="Write, format, and polish deliverables: reports, documents, translations. Ensure the output is complete and ready to use.",
+            backstory="You are a versatile document specialist. You write, edit, format, and polish all types of deliverables. "
+                      "When the PM assigns you a task, you take the raw content and turn it into a polished, complete, ready-to-use output. "
+                      "You ensure proper structure, complete coverage, and correct formatting. "
+                      "You can supplement missing sections, translate content, and reorganize documents. "
+                      "Your output should need NO further editing before delivery.",
             tools=[tool_file],
         )
 
