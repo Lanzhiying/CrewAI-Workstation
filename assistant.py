@@ -1,6 +1,6 @@
 """
-CrewAI Personal Work Assistant
-4-Agent: Manager -> Analyst -> Reviewer -> Writer (with loop)
+CrewAI 工作助手 — 显式顺序流程
+Manager拆解 → Analyst执行 → Reviewer审核 → Writer输出最终成品
 """
 import os
 
@@ -23,7 +23,7 @@ tool_web = ScrapeWebsiteTool()
 
 
 def main():
-    print("CrewAI 工作助手（4 Agent：拆解→分析→审核→输出）")
+    print("CrewAI 4-Agent 顺序流程")
     print("=" * 50)
 
     while True:
@@ -33,64 +33,64 @@ def main():
         if not task_desc:
             continue
 
-        # 1. Manager — 理解需求、拆解任务、调度、判断是否返工
+        # Agents
         manager = Agent(
             role="Manager",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Understand requirements, decompose tasks, coordinate agents, control workflow, decide rework",
-            backstory="You are a Workflow Manager. You break down the user's request into steps. "
-                      "You assign work to Analyst, Reviewer, and Writer in the correct order. "
-                      "After Review, if issues are found, you send the task back for fixing. "
-                      "You only approve the final output when it passes all quality checks.",
+            goal="Understand the request, decompose into concrete steps, monitor execution, decide rework",
+            backstory="You orchestrate the workflow. You assign specific tasks to Analyst, Reviewer, and Writer.",
             allow_delegation=True,
         )
 
-        # 2. Analyst — 读文件、提取数据、分析、校验、修正、输出结构化数据
         analyst = Agent(
             role="Analyst",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Read files, extract data, analyze content, verify consistency, fix issues, output structured data",
-            backstory="You are an Analysis Agent. You read source files using FileReadTool, "
-                      "extract relevant data, analyze the content carefully, "
-                      "verify data consistency and accuracy, "
-                      "and directly FIX any issues you find. "
-                      "You output clean, structured data for the next step.",
+            goal="Read files, extract data, analyze, verify consistency, fix issues, output structured data",
+            backstory="Analysis Agent. Reads source files, verifies data, finds and fixes issues.",
             tools=[tool_file, tool_web],
         )
 
-        # 3. Reviewer — 检查 Analyst 和 Writer 的输出，验证完整性/准确性/格式，不通过则退回
         reviewer = Agent(
             role="Reviewer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Check Analyst and Writer outputs for completeness, accuracy, and format compliance. Reject if not up to standard.",
-            backstory="You are a Quality Assurance Agent. You carefully review the outputs of Analyst and Writer. "
-                      "You check: completeness (nothing missing), accuracy (facts correct), "
-                      "format compliance (matches requirements). "
-                      "If the output passes all checks, you approve it. "
-                      "If not, you clearly state what needs to be fixed and reject it.",
+            goal="Check outputs for completeness, accuracy, format. Reject if not up to standard.",
+            backstory="QA Agent. Verifies Analyst and Writer outputs. Returns issues or approves.",
             tools=[tool_file],
         )
 
-        # 4. Writer — 根据已验证的数据生成最终文档，优化表达与排版，输出可直接交付的成果
         writer = Agent(
             role="Writer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Generate final documents from verified data, optimize expression and formatting, output deliverable-ready results",
-            backstory="You are a Content Generation Agent. You take verified, reviewed data "
-                      "and transform it into polished, well-formatted final documents. "
-                      "You ensure the output is complete, readable, and ready for delivery. "
-                      "You do NOT introduce new content — you format and polish what has been verified. ",
+            goal="Generate the final deliverable from verified data. Output the COMPLETE content, not a summary.",
+            backstory="Writer Agent. Takes verified data and produces the final document. "
+                      "OUTPUT THE FULL CONTENT, not a description of what was done. "
+                      "The user needs to see the actual supplemented/translated/generated document.",
             tools=[tool_file],
         )
 
-        task = Task(
-            description=task_desc,
-            expected_output="A complete, accurate, well-formatted deliverable that meets all requirements",
+        # Tasks
+        task_analyze = Task(
+            description=f"Task 1 - ANALYZE: {task_desc}\n\nRead the relevant files, analyze what needs to be done, produce the supplemented/updated content.",
+            agent=analyst,
+            expected_output="Updated content with all changes applied",
+        )
+
+        task_review = Task(
+            description="Task 2 - REVIEW: Check the Analyst's output for completeness and accuracy. If issues found, specify what needs fixing.",
+            agent=reviewer,
+            expected_output="Approved content or specific issues to fix",
+        )
+
+        task_write = Task(
+            description="Task 3 - WRITE: Take the approved content and produce the FINAL COMPLETE deliverable. "
+                        "Output the ENTIRE document content, not a summary. The user must see the full result.",
+            agent=writer,
+            expected_output="Complete final document with full content",
         )
 
         crew = Crew(
             agents=[analyst, reviewer, writer],
-            tasks=[task],
+            tasks=[task_analyze, task_review, task_write],
             process=Process.hierarchical,
             manager_agent=manager,
             verbose=True,
@@ -105,10 +105,9 @@ def main():
         with open(fname, "w", encoding="utf-8") as f:
             f.write(output)
 
-        print(f"\n✅ 已保存至：{fname}")
-        print(f"   共 {len(output)} 字符")
-        print(f"   前300字预览：{output[:300]}...")
-        print(f"   直接查看：cat {fname}")
+        print(f"\n✅ 已保存：{fname}  ({len(output)} 字符)")
+        print(f"   预览：{output[:300]}...")
+        print(f"   完整内容用 cat {fname} 查看")
 
 
 if __name__ == "__main__":
