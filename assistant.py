@@ -1,16 +1,20 @@
 """
 CrewAI Personal Work Assistant
-Official Process.hierarchical pattern — manager decomposes, assigns, reviews (built-in loop)
+4-Agent: Manager -> Analyst -> Reviewer -> Writer (with loop)
 """
 import os
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv("/workspace/.env")
+except ImportError:
+    pass
 
 os.environ["OPENAI_API_KEY"] = os.environ.get("DEEPSEEK_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 os.environ["OPENAI_MODEL_NAME"] = "deepseek-chat"
 os.environ["CREWAI_TOOLS_ALLOW_UNSAFE_PATHS"] = "true"
 
-from dotenv import load_dotenv
-load_dotenv("/workspace/.env")
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
 
@@ -19,7 +23,7 @@ tool_web = ScrapeWebsiteTool()
 
 
 def main():
-    print("CrewAI 个人工作助手（官方 hierarchical 模式）")
+    print("CrewAI 工作助手（4 Agent：拆解→分析→审核→输出）")
     print("=" * 50)
 
     while True:
@@ -29,57 +33,63 @@ def main():
         if not task_desc:
             continue
 
-        # Workers — manager assigns tasks to them
+        # 1. Manager — 理解需求、拆解任务、调度、判断是否返工
+        manager = Agent(
+            role="Manager",
+            llm={"model": "deepseek-chat", "max_tokens": 8192},
+            goal="Understand requirements, decompose tasks, coordinate agents, control workflow, decide rework",
+            backstory="You are a Workflow Manager. You break down the user's request into steps. "
+                      "You assign work to Analyst, Reviewer, and Writer in the correct order. "
+                      "After Review, if issues are found, you send the task back for fixing. "
+                      "You only approve the final output when it passes all quality checks.",
+            allow_delegation=True,
+        )
+
+        # 2. Analyst — 读文件、提取数据、分析、校验、修正、输出结构化数据
         analyst = Agent(
             role="Analyst",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Execute delegated tasks: read files, verify data accuracy, check compliance, identify issues, and fix errors",
-            backstory="You are a meticulous analyst who can both identify problems AND fix them. "
-                      "When the PM assigns you a task, you read the relevant files using FileReadTool, "
-                      "analyze the content carefully, identify any issues or gaps, and directly FIX them. "
-                      "You don't just report problems — you correct them. "
-                      "You verify data accuracy, check completeness, and ensure the output is correct before passing it on.",
+            goal="Read files, extract data, analyze content, verify consistency, fix issues, output structured data",
+            backstory="You are an Analysis Agent. You read source files using FileReadTool, "
+                      "extract relevant data, analyze the content carefully, "
+                      "verify data consistency and accuracy, "
+                      "and directly FIX any issues you find. "
+                      "You output clean, structured data for the next step.",
             tools=[tool_file, tool_web],
         )
 
-        writer = Agent(
-            role="Writer",
+        # 3. Reviewer — 检查 Analyst 和 Writer 的输出，验证完整性/准确性/格式，不通过则退回
+        reviewer = Agent(
+            role="Reviewer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Write, format, and polish deliverables: reports, documents, translations. Ensure the output is complete and ready to use.",
-            backstory="You are a versatile document specialist. You write, edit, format, and polish all types of deliverables. "
-                      "When the PM assigns you a task, you take the raw content and turn it into a polished, complete, ready-to-use output. "
-                      "You ensure proper structure, complete coverage, and correct formatting. "
-                      "You can supplement missing sections, translate content, and reorganize documents. "
-                      "Your output should need NO further editing before delivery.",
+            goal="Check Analyst and Writer outputs for completeness, accuracy, and format compliance. Reject if not up to standard.",
+            backstory="You are a Quality Assurance Agent. You carefully review the outputs of Analyst and Writer. "
+                      "You check: completeness (nothing missing), accuracy (facts correct), "
+                      "format compliance (matches requirements). "
+                      "If the output passes all checks, you approve it. "
+                      "If not, you clearly state what needs to be fixed and reject it.",
             tools=[tool_file],
         )
 
-        # Manager — decomposes, delegates, reviews (CrewAI built-in)
-        manager = Agent(
-            role="Project Manager",
+        # 4. Writer — 根据已验证的数据生成最终文档，优化表达与排版，输出可直接交付的成果
+        writer = Agent(
+            role="Writer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Decompose tasks into the correct steps: 1) understand what's needed, 2) execute the work, 3) VERIFY the output is correct, 4) if issues found, fix them, 5) deliver final verified result.",
-            backstory="You are an experienced PM with strong quality control. "
-                      "Your standard workflow is: "
-                      "1. READ/UNDERSTAND what the user needs "
-                      "2. EXECUTE the work (write, supplement, translate, etc.) "
-                      "3. VERIFY the output is correct and complete "
-                      "4. If verification finds errors -> send back for FIX, then verify again "
-                      "5. Output the FINAL VERIFIED result "
-                      "The verification step is CRITICAL and must be a real quality check. "
-                      "But verification means: check the OUTPUT for errors and fix them, "
-                      "NOT produce a separate review/audit report. "
-                      "The user should only see the final correct result, not an intermediate review.",
-            allow_delegation=True,
+            goal="Generate final documents from verified data, optimize expression and formatting, output deliverable-ready results",
+            backstory="You are a Content Generation Agent. You take verified, reviewed data "
+                      "and transform it into polished, well-formatted final documents. "
+                      "You ensure the output is complete, readable, and ready for delivery. "
+                      "You do NOT introduce new content — you format and polish what has been verified.",
+            tools=[tool_file],
         )
 
         task = Task(
             description=task_desc,
-            expected_output="A complete, structured analysis report with findings, recommendations, and actionable next steps",
+            expected_output="A complete, accurate, well-formatted deliverable that meets all requirements",
         )
 
         crew = Crew(
-            agents=[analyst, writer],
+            agents=[analyst, reviewer, writer],
             tasks=[task],
             process=Process.hierarchical,
             manager_agent=manager,
@@ -89,7 +99,7 @@ def main():
         result = crew.kickoff()
 
         print("\n" + "=" * 50)
-        print("FINAL OUTPUT:")
+        print("最终交付物：")
         print("=" * 50)
         print(str(result))
 
@@ -98,7 +108,7 @@ def main():
         os.makedirs("/workspace/work", exist_ok=True)
         with open(fname, "w", encoding="utf-8") as f:
             f.write(str(result))
-        print(f"\nSaved: {fname}")
+        print(f"\n已保存：{fname}")
 
 
 if __name__ == "__main__":
