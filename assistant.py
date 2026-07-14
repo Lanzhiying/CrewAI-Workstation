@@ -17,6 +17,22 @@ os.environ["CREWAI_TOOLS_ALLOW_UNSAFE_PATHS"] = "true"
 
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
+from crewai.tools import tool
+
+@tool("FileWriteTool")
+def write_to_file(content: str, filepath: str) -> str:
+    """Write content to a file. Use this to save long output directly instead of returning it in chat.
+    Args:
+        content: The full content to write
+        filepath: Path to save the file (e.g., /workspace/work/output.md)
+    """
+    import os
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(content)
+    return f"File saved to {filepath}"
+
+tool_write = write_to_file
 
 tool_file = FileReadTool()
 tool_web = ScrapeWebsiteTool()
@@ -79,8 +95,8 @@ def main():
             backstory="You are a Content Generation Agent. You take verified, reviewed data "
                       "and transform it into polished, well-formatted final documents. "
                       "You ensure the output is complete, readable, and ready for delivery. "
-                      "You do NOT introduce new content — you format and polish what has been verified.",
-            tools=[tool_file],
+                      "You do NOT introduce new content — you format and polish what has been verified. IMPORTANT: After generating the content, use the FileWriteTool to save it directly to a file. Then return a brief summary of what was saved.",
+            tools=[tool_file, tool_write],
         )
 
         task = Task(
