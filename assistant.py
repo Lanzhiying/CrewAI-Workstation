@@ -26,12 +26,22 @@ def main():
     print("CrewAI 工作助手（4 Agent：拆解→分析→审核→输出）")
     print("=" * 50)
 
+    last_task = ""
     while True:
-        task_desc = input("\n输入任务（q退出）: ").strip()
+        prompt = "\n输入任务（输入c继续上次任务，q退出）: "
+        task_desc = input(prompt).strip()
         if task_desc.lower() == "q":
             break
+        if task_desc.lower() == "c":
+            if last_task:
+                task_desc = last_task + "\n\n继续上次任务。从上次中断处继续补充，不要重复已输出的内容。直接输出补充后的完整文档。"
+                print("  → 继续上次任务")
+            else:
+                print("  ⚠️ 没有上次任务")
+                continue
         if not task_desc:
             continue
+        last_task = task_desc
 
         # 1. Manager — 理解需求、拆解任务、调度、判断是否返工
         manager = Agent(
