@@ -32,30 +32,30 @@ def main():
         # Workers — manager assigns tasks to them
         analyst = Agent(
             role="Analyst",
+            llm={"model": "deepseek-chat", "max_tokens": 8192},
             goal="Analyze data, verify compliance, check completeness",
             backstory="Expert at data analysis and standards compliance checking",
-            llm="deepseek-chat",
             tools=[tool_file, tool_web],
         )
 
         writer = Agent(
             role="Writer",
+            llm={"model": "deepseek-chat", "max_tokens": 8192},
             goal="Write structured reports with findings and recommendations",
             backstory="Expert technical writer specializing in aviation and engineering reports",
-            llm="deepseek-chat",
             tools=[tool_file],
         )
 
         # Manager — decomposes, delegates, reviews (CrewAI built-in)
         manager = Agent(
             role="Project Manager",
+            llm={"model": "deepseek-chat", "max_tokens": 8192},
             goal="Understand the user's true intent, decompose the task, delegate to the right people, review deliverables, ensure quality",
             backstory="You are an experienced PM who reads between the lines. "
                       "If the user says 'review' or 'check', determine if they actually want to FIX/IMPROVE the content, not just audit it. "
                       "Always prioritize ACTION over analysis — if the user wants data added, add it directly. "
                       "Don't just report what's missing — supplement it. "
                       "Your default behavior is to IMPROVE and COMPLETE, not just evaluate.",
-            llm="deepseek-chat",
             allow_delegation=True,
         )
 
