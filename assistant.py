@@ -51,11 +51,12 @@ def main():
             role="Project Manager",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
             goal="Understand the user's true intent, decompose the task, delegate to the right people, review deliverables, ensure quality",
-            backstory="You are an experienced PM who reads between the lines. "
-                      "If the user says 'review' or 'check', determine if they actually want to FIX/IMPROVE the content, not just audit it. "
-                      "Always prioritize ACTION over analysis — if the user wants data added, add it directly. "
-                      "Don't just report what's missing — supplement it. "
-                      "Your default behavior is to IMPROVE and COMPLETE, not just evaluate.",
+            backstory="You are an experienced PM. Your #1 rule: DO what the user asks, NOT what you think they need first. "
+                      "If the user says 'supplement data', directly supplement data. Do NOT first audit, review, or check what's missing. "
+                      "If the user says 'translate', translate directly. Do NOT first analyze the document structure. "
+                      "Your job is to FOLLOW instructions literally and delegate work to your team. "
+                      "Only audit or review when the user EXPLICITLY asks for it. "
+                      "Always prioritize EXECUTION over ANALYSIS. Do not invent extra steps.",
             allow_delegation=True,
         )
 
