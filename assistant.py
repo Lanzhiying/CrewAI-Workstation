@@ -34,22 +34,17 @@ def main():
             break
         if task_desc.lower() == "c":
             if last_task:
-                # Find last output file
+                # Count completed parts to inform next run
                 import glob
-                safe = "".join(c for c in last_task[:20] if c.isalnum() or c in " _").strip()
-                pattern = f"/workspace/work/output_{safe or 'result'}*.md"
-                existing_files = sorted(glob.glob(pattern))
-                context = ""
-                if existing_files:
-                    last_file = existing_files[-1]
-                    try:
-                        with open(last_file, "r", encoding="utf-8") as fh:
-                            existing = fh.read()
-                        context = f"\n\n以下内容已经完成，请勿重复：\n{existing[-2000:]}\n\n"
-                    except:
-                        pass
-                task_desc = last_task + context + "\n\n继续：从上次中断处继续，补充剩余未完成的部分。不要重复已有内容。直接输出新补充的内容。"
-                print("  → 继续上次任务（读取已有输出避免重复）")
+                parts = sorted(glob.glob("/workspace/work/part_*.md"))
+                p = len(parts) + 1
+                hint = ""
+                if parts:
+                    with open(parts[-1], "r", encoding="utf-8") as fh:
+                        last_content = fh.read()
+                    hint = f"\n\n前{p-1}个部分已输出。继续输出第{p}部分，从上次中断处开始，不要重复已有内容。"
+                task_desc = last_task + hint
+                print(f"  → 继续上次任务（输出第{p}部分）")
             else:
                 print("  ⚠️ 没有上次任务")
                 continue
@@ -125,8 +120,6 @@ def main():
         )
 
         result = crew.kickoff()
-        
-        # Try to get actual Writer output instead of Manager summary
         output = str(result)
         try:
             last = crew.tasks[-1].output
@@ -135,17 +128,26 @@ def main():
         except:
             pass
 
-        safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _").strip()
-        fname = f"/workspace/work/output_{safe or 'result'}.md"
         os.makedirs("/workspace/work", exist_ok=True)
         
         is_cont = "继续" in task_desc or task_desc.strip() == "c"
-        mode = "a" if is_cont else "w"
-        with open(fname, mode, encoding="utf-8") as f:
-            f.write("\n" + output if is_cont else output)
+        if is_cont:
+            import glob
+            # Count existing part files to determine next number
+            parts = sorted(glob.glob("/workspace/work/part_*.md"))
+            n = len(parts) + 1
+            fname = f"/workspace/work/part_{n}.md"
+        else:
+            safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _").strip()
+            fname = f"/workspace/work/output_{safe or 'result'}.md"
         
-        print(f"\n✅ {'追加' if is_cont else '保存'}至：{fname}  ({len(output)} 字符)")
-        print(f"   预览：{output[:200]}...")
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write(output)
+        
+        print(f"\n✅ {'第' + str(n) + '部分' if is_cont else '保存'}至：{fname}  ({len(output)} 字符)")
+        if is_cont and n > 1:
+            print(f"   当前共有 {n} 个部分文件")
+            print(f"   合并：python /workspace/work/merge_outputs.py")
 
 
 if __name__ == "__main__":
