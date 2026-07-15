@@ -34,8 +34,22 @@ def main():
             break
         if task_desc.lower() == "c":
             if last_task:
-                task_desc = last_task + "\n\n继续上次任务。从上次中断处继续补充，不要重复已输出的内容。直接输出补充后的完整文档。"
-                print("  → 继续上次任务")
+                # Find last output file
+                import glob
+                safe = "".join(c for c in last_task[:20] if c.isalnum() or c in " _").strip()
+                pattern = f"/workspace/work/output_{safe or 'result'}*.md"
+                existing_files = sorted(glob.glob(pattern))
+                context = ""
+                if existing_files:
+                    last_file = existing_files[-1]
+                    try:
+                        with open(last_file, "r", encoding="utf-8") as fh:
+                            existing = fh.read()
+                        context = f"\n\n以下内容已经完成，请勿重复：\n{existing[-2000:]}\n\n"
+                    except:
+                        pass
+                task_desc = last_task + context + "\n\n继续：从上次中断处继续，补充剩余未完成的部分。不要重复已有内容。直接输出新补充的内容。"
+                print("  → 继续上次任务（读取已有输出避免重复）")
             else:
                 print("  ⚠️ 没有上次任务")
                 continue
