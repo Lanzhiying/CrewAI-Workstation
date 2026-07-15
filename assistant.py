@@ -105,7 +105,8 @@ def main():
         crew = Crew(
             agents=[analyst, reviewer, writer],
             tasks=[task],
-            process=Process.sequential,
+            process=Process.hierarchical,
+            manager_agent=manager,
             verbose=True,
         )
 
