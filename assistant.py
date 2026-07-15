@@ -1,6 +1,6 @@
 """
-CrewAI Personal Work Assistant
-4-Agent: Manager -> Analyst -> Reviewer -> Writer (with loop)
+CrewAI 4-Agent: Manager + Analyst + Reviewer + Writer
+Writer saves to file during generation to bypass API output limits
 """
 import os
 
@@ -17,14 +17,30 @@ os.environ["CREWAI_TOOLS_ALLOW_UNSAFE_PATHS"] = "true"
 
 from crewai import Agent, Task, Crew, Process
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
+from crewai.tools import tool
 
 tool_file = FileReadTool()
 tool_web = ScrapeWebsiteTool()
 
+@tool("FileSaver")
+def save_section(content: str, filename: str = "output.md") -> str:
+    """Append content to a file. Use this to save long output during generation.
+    Args:
+        content: The text content to append
+        filename: Target filename (e.g., report.md)
+    """
+    path = f"/workspace/work/{filename}"
+    os.makedirs("/workspace/work", exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(content + "\n\n")
+    return f"Section saved to {path}"
+
+tool_saver = save_section
+
 
 def main():
-    print("CrewAI 工作助手（4 Agent：拆解→分析→审核→输出）")
-    print("=" * 50)
+    print("CrewAI 4-Agent（Writer自动分段写入文件，突破输出限制）")
+    print("=" * 55)
 
     last_task = ""
     while True:
@@ -34,81 +50,73 @@ def main():
             break
         if task_desc.lower() == "c":
             if last_task:
-                # Count completed parts to inform next run
                 import glob
                 parts = sorted(glob.glob("/workspace/work/part_*.md"))
                 p = len(parts) + 1
-                hint = ""
-                if parts:
-                    with open(parts[-1], "r", encoding="utf-8") as fh:
-                        last_content = fh.read()
-                    hint = f"\n\n前{p-1}个部分已输出。继续输出第{p}部分，从上次中断处开始，不要重复已有内容。"
+                hint = f"\n\n继续第{p}部分。从上次中断处开始，不要重复已有内容。"
                 task_desc = last_task + hint
-                print(f"  → 继续上次任务（输出第{p}部分）")
+                print(f"  \u2192 继续（第{p}部分）")
             else:
-                print("  ⚠️ 没有上次任务")
+                print("  \u26a0\ufe0f 没有上次任务")
                 continue
         if not task_desc:
             continue
         last_task = task_desc
 
-        # 1. Manager — 理解需求、拆解任务、调度、判断是否返工
+        # Agents
         manager = Agent(
             role="Manager",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
             goal="Understand requirements, decompose tasks, coordinate agents, control workflow, decide rework",
-            backstory="You are a Workflow Manager. You break down the user's request into steps. "
-                      "You assign work to Analyst, Reviewer, and Writer in the correct order. "
-                      "After Review, if issues are found, you send the task back for fixing. "
-                      "You only approve the final output when it passes all quality checks. "
-                      "IMPORTANT: The final output must be the COMPLETE supplemented/generated document, "
-                      "not a summary of what changed. The user needs to see the full content.",
+            backstory=("Workflow Manager. Breaks down user requests, assigns work to Analyst/Reviewer/Writer, "
+                       "decides if rework is needed. Approves only when quality passes."),
             allow_delegation=True,
         )
 
-        # 2. Analyst — 读文件、提取数据、分析、校验、修正、输出结构化数据
         analyst = Agent(
             role="Analyst",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Read files, extract data, analyze content, verify consistency, fix issues, output structured data",
-            backstory="You are an Analysis Agent. You read source files using FileReadTool, "
-                      "extract relevant data, analyze the content carefully, "
-                      "verify data consistency and accuracy, "
-                      "and directly FIX any issues you find. "
-                      "You output clean, structured data for the next step.",
+            goal="Read files, extract data, analyze, verify consistency, fix issues, output structured data",
+            backstory="Analysis Agent. Reads source files, verifies data, finds and fixes issues.",
             tools=[tool_file, tool_web],
         )
 
-        # 3. Reviewer — 检查 Analyst 和 Writer 的输出，验证完整性/准确性/格式，不通过则退回
         reviewer = Agent(
             role="Reviewer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Check Analyst and Writer outputs for completeness, accuracy, and format compliance. Reject if not up to standard.",
-            backstory="You are a Quality Assurance Agent. You carefully review the outputs of Analyst and Writer. "
-                      "You check: completeness (nothing missing), accuracy (facts correct), "
-                      "format compliance (matches requirements). "
-                      "If the output passes all checks, you approve it. "
-                      "If not, you clearly state what needs to be fixed and reject it.",
+            goal="Check outputs for completeness, accuracy, format. Reject if not up to standard.",
+            backstory="QA Agent. Verifies Analyst and Writer outputs. Returns issues or approves.",
             tools=[tool_file],
         )
 
-        # 4. Writer — 根据已验证的数据生成最终文档，优化表达与排版，输出可直接交付的成果
         writer = Agent(
             role="Writer",
             llm={"model": "deepseek-chat", "max_tokens": 8192},
-            goal="Generate final documents from verified data, optimize expression and formatting, output deliverable-ready results",
-            backstory="You are a Content Generation Agent. You take verified, reviewed data "
-                      "and transform it into polished, well-formatted final documents. "
-                      "You ensure the output is complete, readable, and ready for delivery. "
-                      "CRITICAL: Output the ENTIRE document content, not a summary or description of changes. "
-                      "The user must see the full supplemented/translated/generated document, not a list of what was done."
-                      "You do NOT introduce new content — you format and polish what has been verified.",
-            tools=[tool_file],
+            goal="Generate final document. Use FileSaver to save output to file during generation.",
+            backstory=("Writer Agent. You generate the final complete document. "
+                       "CRITICAL: Use the FileSaver tool to save each section as you write it. "
+                       "Do NOT try to return the full content in your response - the API will truncate it. "
+                       "Instead: write section by section using FileSaver, "
+                       "and only return a brief confirmation like 'Saved 5 sections to complete_report.md'. "
+                       "This way the full document is saved to disk without truncation."),
+            tools=[tool_file, tool_saver],
         )
 
+        # Determine output filename
+        is_cont = task_desc.startswith("\u7ee7\u7eed") or task_desc.strip() == "c"
+        if is_cont:
+            import glob
+            parts = sorted(glob.glob("/workspace/work/part_*.md"))
+            n = len(parts) + 1
+            out_file = f"part_{n}.md"
+        else:
+            safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _").strip()
+            out_file = f"output_{safe or 'result'}.md"
+
         task = Task(
-            description=task_desc,
-            expected_output="A complete, accurate, well-formatted deliverable that meets all requirements",
+            description=task_desc + f"\n\nOutput filename to use with FileSaver: {out_file}",
+            agent=writer,
+            expected_output="Confirmation of saved file sections",
         )
 
         crew = Crew(
@@ -120,34 +128,13 @@ def main():
         )
 
         result = crew.kickoff()
-        output = str(result)
-        try:
-            last = crew.tasks[-1].output
-            if last:
-                output = str(last.raw if hasattr(last, "raw") else last)
-        except:
-            pass
 
-        os.makedirs("/workspace/work", exist_ok=True)
-        
-        is_cont = "继续" in task_desc or task_desc.strip() == "c"
-        if is_cont:
-            import glob
-            # Count existing part files to determine next number
-            parts = sorted(glob.glob("/workspace/work/part_*.md"))
-            n = len(parts) + 1
-            fname = f"/workspace/work/part_{n}.md"
-        else:
-            safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _").strip()
-            fname = f"/workspace/work/output_{safe or 'result'}.md"
-        
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write(output)
-        
-        print(f"\n✅ {'第' + str(n) + '部分' if is_cont else '保存'}至：{fname}  ({len(output)} 字符)")
-        if is_cont and n > 1:
-            print(f"   当前共有 {n} 个部分文件")
-            print(f"   合并：python /workspace/work/merge_outputs.py")
+        # Check file size
+        path = f"/workspace/work/{out_file}"
+        if os.path.exists(path):
+            sz = os.path.getsize(path)
+            print(f"\n\u2705 {out_file} ({sz} bytes)")
+        print(f"\nAgent确认：{str(result)[:200]}...")
 
 
 if __name__ == "__main__":
