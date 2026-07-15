@@ -111,18 +111,27 @@ def main():
         )
 
         result = crew.kickoff()
-
-        print("\n" + "=" * 50)
-        print("最终交付物：")
-        print("=" * 50)
-        print(str(result))
+        
+        # Try to get actual Writer output instead of Manager summary
+        output = str(result)
+        try:
+            last = crew.tasks[-1].output
+            if last:
+                output = str(last.raw if hasattr(last, "raw") else last)
+        except:
+            pass
 
         safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _").strip()
         fname = f"/workspace/work/output_{safe or 'result'}.md"
         os.makedirs("/workspace/work", exist_ok=True)
-        with open(fname, "w", encoding="utf-8") as f:
-            f.write(str(result))
-        print(f"\n已保存：{fname}")
+        
+        is_cont = "继续" in task_desc or task_desc.strip() == "c"
+        mode = "a" if is_cont else "w"
+        with open(fname, mode, encoding="utf-8") as f:
+            f.write("\n" + output if is_cont else output)
+        
+        print(f"\n✅ {'追加' if is_cont else '保存'}至：{fname}  ({len(output)} 字符)")
+        print(f"   预览：{output[:200]}...")
 
 
 if __name__ == "__main__":
