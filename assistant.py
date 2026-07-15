@@ -66,7 +66,7 @@ def main():
         # Agents
         manager = Agent(
             role="Manager",
-            llm={"model": "deepseek-chat", "max_tokens": 32768},
+            llm={"model": "deepseek-chat", "max_tokens": 131072},
             goal="Understand requirements, decompose tasks, coordinate agents, control workflow, decide rework",
             backstory=("Workflow Manager. Breaks down user requests, assigns work to Analyst/Reviewer/Writer, "
                        "decides if rework is needed. Approves only when quality passes."),
@@ -75,7 +75,7 @@ def main():
 
         analyst = Agent(
             role="Analyst",
-            llm={"model": "deepseek-chat", "max_tokens": 32768},
+            llm={"model": "deepseek-chat", "max_tokens": 131072},
             goal="Read files, extract data, analyze, verify consistency, fix issues, output structured data",
             backstory="Analysis Agent. Reads source files, verifies data, finds and fixes issues.",
             tools=[tool_file, tool_web],
@@ -83,7 +83,7 @@ def main():
 
         reviewer = Agent(
             role="Reviewer",
-            llm={"model": "deepseek-chat", "max_tokens": 32768},
+            llm={"model": "deepseek-chat", "max_tokens": 131072},
             goal="Check outputs for completeness, accuracy, format. Reject if not up to standard.",
             backstory="QA Agent. Verifies Analyst and Writer outputs. Returns issues or approves.",
             tools=[tool_file],
@@ -91,7 +91,7 @@ def main():
 
         writer = Agent(
             role="Writer",
-            llm={"model": "deepseek-chat", "max_tokens": 32768},
+            llm={"model": "deepseek-chat", "max_tokens": 131072},
             goal="Generate final document. Use FileSaver to save output to file during generation.",
             backstory=("Writer Agent. You generate the final complete document. "
                        "CRITICAL: Use the FileSaver tool to save each section as you write it. "
