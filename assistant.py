@@ -1,6 +1,6 @@
 """
-CrewAI 4-Agent: Manager + Analyst + Reviewer + Writer
-Writer saves to file during generation to bypass API output limits
+CrewAI Personal Work Assistant — Official Flows Pattern
+Analyst -> Reviewer (loop) -> Writer -> Save
 """
 import os
 
@@ -15,126 +15,148 @@ os.environ["OPENAI_BASE_URL"] = "https://api.deepseek.com/v1"
 os.environ["OPENAI_MODEL_NAME"] = "deepseek-chat"
 os.environ["CREWAI_TOOLS_ALLOW_UNSAFE_PATHS"] = "true"
 
+from typing import Optional
+from pydantic import BaseModel
 from crewai import Agent, Task, Crew, Process
+from crewai.flow.flow import Flow, listen, router, start
 from crewai_tools import FileReadTool, ScrapeWebsiteTool
-from crewai.tools import tool
 
 tool_file = FileReadTool()
 tool_web = ScrapeWebsiteTool()
 
-@tool("FileSaver")
-def save_section(content: str, filename: str = "output.md") -> str:
-    """Append content to a file. Use this to save long output during generation.
-    Args:
-        content: The text content to append
-        filename: Target filename (e.g., report.md)
-    """
-    path = f"/workspace/work/{filename}"
-    os.makedirs("/workspace/work", exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(content + "\n\n")
-    return f"Section saved to {path}"
 
-tool_saver = save_section
+# === State ===
+class WorkflowState(BaseModel):
+    task_desc: str = ""
+    file_path: str = ""
+    analyst_output: str = ""
+    feedback: Optional[str] = None
+    valid: bool = False
+    retry_count: int = 0
+    final_output: str = ""
+
+
+# === Flow ===
+class PersonalWorkFlow(Flow[WorkflowState]):
+
+    model = "deepseek-chat"
+    max_tokens = 131072
+
+    @start()
+    def analyze(self):
+        print("\n=== 1. Analyst: processing task ===")
+        analyst = Agent(
+            role="Analyst",
+            llm={"model": self.model, "max_tokens": self.max_tokens},
+            goal="Read files, analyze content, find issues, fix them, output structured data",
+            backstory="Analysis Agent. Reads source files, verifies data, fixes issues directly.",
+            tools=[tool_file, tool_web],
+        )
+        task = Task(
+            description=self.state.task_desc,
+            expected_output="Complete analyzed and supplemented content",
+            agent=analyst,
+        )
+        crew = Crew(agents=[analyst], tasks=[task], process=Process.sequential, verbose=True)
+        result = crew.kickoff()
+        self.state.analyst_output = str(result.raw if hasattr(result, "raw") else result)
+        print(f"Analyst output: {len(self.state.analyst_output)} chars")
+
+    @router(analyze)
+    def review(self):
+        print("\n=== 2. Reviewer: checking quality ===")
+        reviewer = Agent(
+            role="Reviewer",
+            llm={"model": self.model, "max_tokens": self.max_tokens},
+            goal="Check content for completeness, accuracy, format. Return pass/fail with feedback.",
+            backstory="QA Agent. Verifies content quality. If issues found, returns specific feedback for fixes.",
+            tools=[tool_file],
+        )
+        review_in = (
+            f"Original task: {self.state.task_desc}\n\n"
+            f"Content to review:\n{self.state.analyst_output[:5000]}\n\n"
+            f"Check if complete and accurate. Return VALID=true and feedback='' if OK. "
+            f"Otherwise VALID=false and specify what needs fixing."
+        )
+        task = Task(
+            description=review_in,
+            expected_output="VALID=true or VALID=false with feedback",
+            agent=reviewer,
+        )
+        crew = Crew(agents=[reviewer], tasks=[task], process=Process.sequential, verbose=True)
+        result = crew.kickoff()
+        output = str(result.raw if hasattr(result, "raw") else result)
+
+        self.state.retry_count += 1
+        self.state.valid = "valid" in output.lower() and "true" in output.lower()
+        self.state.feedback = output
+        print(f"Review {self.state.retry_count}: {'PASS' if self.state.valid else 'FAIL'}")
+
+        if self.state.retry_count >= 3:
+            return "max_retry"
+        if self.state.valid:
+            return "write"
+        return "retry"
+
+    @listen("retry")
+    def retry_analyze(self):
+        print(f"\n=== Retry {self.state.retry_count}: fixing issues ===")
+        self.state.task_desc += f"\n\nFeedback from reviewer: {self.state.feedback}\nFix the issues above."
+        self.analyze()
+        return self.review()
+
+    @listen("write")
+    def write_final(self):
+        print("\n=== 3. Writer: generating final document ===")
+        writer = Agent(
+            role="Writer",
+            llm={"model": self.model, "max_tokens": self.max_tokens},
+            goal="Format and polish the final document. Output complete content.",
+            backstory="Writer Agent. Takes verified data and produces the polished final document.",
+            tools=[tool_file],
+        )
+        task = Task(
+            description=f"Format the following content into a clean, well-structured final document:\n\n{self.state.analyst_output}",
+            expected_output="Complete formatted document",
+            agent=writer,
+        )
+        crew = Crew(agents=[writer], tasks=[task], process=Process.sequential, verbose=True)
+        result = crew.kickoff()
+        self.state.final_output = str(result.raw if hasattr(result, "raw") else result)
+
+    @listen("write")
+    def save(self):
+        print("\n=== 4. Save to file ===")
+        safe = "".join(c for c in self.state.task_desc[:20] if c.isalnum() or c in " _").strip()
+        fname = f"/workspace/work/output_{safe or 'result'}.md"
+        os.makedirs("/workspace/work", exist_ok=True)
+        with open(fname, "w", encoding="utf-8") as f:
+            f.write(self.state.final_output)
+        print(f"\n✅ Saved: {fname} ({len(self.state.final_output)} chars)")
+        print(f"   Preview: {self.state.final_output[:300]}...")
+
+    @listen("max_retry")
+    def max_retry_exit(self):
+        print(f"\n Max retries ({self.state.retry_count}) exceeded.")
+        print(f"Partial output saved with what we have.")
+        self.state.final_output = self.state.analyst_output
+        self.save()
 
 
 def main():
-    print("CrewAI 4-Agent（Writer自动分段写入文件，突破输出限制）")
+    print("CrewAI 工作助手（官方Flows模式：分析→审核循环→写作→保存）")
     print("=" * 55)
 
-    last_task = ""
     while True:
-        prompt = "\n输入任务（输入c继续上次任务，q退出）: "
-        task_desc = input(prompt).strip()
+        task_desc = input("\n输入任务（q退出）: ").strip()
         if task_desc.lower() == "q":
             break
-        if task_desc.lower() == "c":
-            if last_task:
-                import glob
-                parts = sorted(glob.glob("/workspace/work/part_*.md"))
-                p = len(parts) + 1
-                hint = f"\n\n继续第{p}部分。从上次中断处开始，不要重复已有内容。"
-                task_desc = last_task + hint
-                print(f"  \u2192 继续（第{p}部分）")
-            else:
-                print("  \u26a0\ufe0f 没有上次任务")
-                continue
         if not task_desc:
             continue
-        last_task = task_desc
 
-        # Agents
-        manager = Agent(
-            role="Manager",
-            llm={"model": "deepseek-chat", "max_tokens": 131072},
-            goal="Understand requirements, decompose tasks, coordinate agents, control workflow, decide rework",
-            backstory=("Workflow Manager. Breaks down user requests, assigns work to Analyst/Reviewer/Writer, "
-                       "decides if rework is needed. Approves only when quality passes."),
-            allow_delegation=True,
-        )
-
-        analyst = Agent(
-            role="Analyst",
-            llm={"model": "deepseek-chat", "max_tokens": 131072},
-            goal="Read files, extract data, analyze, verify consistency, fix issues, output structured data",
-            backstory="Analysis Agent. Reads source files, verifies data, finds and fixes issues.",
-            tools=[tool_file, tool_web],
-        )
-
-        reviewer = Agent(
-            role="Reviewer",
-            llm={"model": "deepseek-chat", "max_tokens": 131072},
-            goal="Check outputs for completeness, accuracy, format. Reject if not up to standard.",
-            backstory="QA Agent. Verifies Analyst and Writer outputs. Returns issues or approves.",
-            tools=[tool_file],
-        )
-
-        writer = Agent(
-            role="Writer",
-            llm={"model": "deepseek-chat", "max_tokens": 131072},
-            goal="Generate final document. Use FileSaver to save output to file during generation.",
-            backstory=("Writer Agent. You generate the final complete document. "
-                       "CRITICAL: Use the FileSaver tool to save each section as you write it. "
-                       "Do NOT try to return the full content in your response - the API will truncate it. "
-                       "Instead: write section by section using FileSaver, "
-                       "and only return a brief confirmation like 'Saved 5 sections to complete_report.md'. "
-                       "This way the full document is saved to disk without truncation."),
-            tools=[tool_file, tool_saver],
-        )
-
-        # Determine output filename
-        is_cont = task_desc.startswith("\u7ee7\u7eed") or task_desc.strip() == "c"
-        if is_cont:
-            import glob
-            parts = sorted(glob.glob("/workspace/work/part_*.md"))
-            n = len(parts) + 1
-            out_file = f"part_{n}.md"
-        else:
-            safe = "".join(c for c in task_desc[:20] if c.isalnum() or c in " _").strip()
-            out_file = f"output_{safe or 'result'}.md"
-
-        task = Task(
-            description=task_desc + f"\n\nOutput filename to use with FileSaver: {out_file}",
-            agent=writer,
-            expected_output="Confirmation of saved file sections",
-        )
-
-        crew = Crew(
-            agents=[analyst, reviewer, writer],
-            tasks=[task],
-            process=Process.hierarchical,
-            manager_agent=manager,
-            verbose=True,
-        )
-
-        result = crew.kickoff()
-
-        # Check file size
-        path = f"/workspace/work/{out_file}"
-        if os.path.exists(path):
-            sz = os.path.getsize(path)
-            print(f"\n\u2705 {out_file} ({sz} bytes)")
-        print(f"\nAgent确认：{str(result)[:200]}...")
+        flow = PersonalWorkFlow()
+        flow.state.task_desc = task_desc
+        flow.kickoff()
 
 
 if __name__ == "__main__":
